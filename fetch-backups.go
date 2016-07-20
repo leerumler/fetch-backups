@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/tls"
+	"flag"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -27,31 +28,41 @@ func prompt(question string) string {
 	return answer
 }
 
-func checkPrivelege() string {
-	access := prompt("Level of access (single|reseller): ")
+func parsePrompt(flagname, usage, question string) string {
+	var answer string
+	flag.StringVar(&answer, flagname, "", usage)
+	flag.Parse()
+	if answer == "" {
+		answer = prompt(question)
+	}
+	return answer
+}
+
+func checkPrivilege() string {
+	access := parsePrompt("access", "access level to source (single|reseller)", "Level of access (single|reseller): ")
 	if access != "single" && access != "reseller" {
-		checkPrivelege()
+		checkPrivilege()
 	}
 	return access
 }
 
-func prompts() (targetinfo, sourceinfo) {
+func getInfo() (targetinfo, sourceinfo) {
 
 	// Collect target info.
 	var target targetinfo
-	target.ip = prompt("Target IP: ")
-	target.user = prompt("Target User: ")
-	target.pass = prompt("Target Pass: ")
-	target.dir = prompt("Target Directory: ")
-	target.port = prompt("Target Port: ")
-	target.proto = prompt("Transport Protocol (scp|ftp): ")
-	target.email = prompt("Email (for notifications): ")
+	target.ip = parsePrompt("tip", "target ip address", "Target IP: ")
+	target.user = parsePrompt("tuser", "target username", "Target User: ")
+	target.pass = parsePrompt("tpass", "target password", "Target Pass: ")
+	target.dir = parsePrompt("tdir", "target directory", "Target Directory: ")
+	target.port = parsePrompt("tport", "target port", "Target Port: ")
+	target.proto = parsePrompt("proto", "target protocol", "Transport Protocol (scp|ftp): ")
+	target.email = parsePrompt("email", "email address (for notifications)", "Email (for notifications): ")
 
 	// Collect source info.
 	var source sourceinfo
-	source.ip = prompt("Source IP: ")
-	source.user = prompt("Source User: ")
-	source.pass = prompt("Source Pass: ")
+	source.ip = parsePrompt("sip", "source ip address", "Source IP: ")
+	source.user = parsePrompt("suser", "source username", "Source User: ")
+	source.pass = parsePrompt("spass", "source password", "Source Pass: ")
 
 	return target, source
 }
@@ -99,8 +110,8 @@ func genPOST(users []string, target targetinfo, source sourceinfo) {
 }
 
 func main() {
-	access := checkPrivelege()
-	target, source := prompts()
+	access := checkPrivilege()
+	target, source := getInfo()
 
 	switch access {
 	case "single":
