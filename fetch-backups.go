@@ -27,11 +27,6 @@ type optinfo struct {
 	access, email, proto *string
 }
 
-type answerpoints struct {
-	pointer *string
-	answer  string
-}
-
 func prompt(question string) *string {
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Print(question)
