@@ -16,62 +16,100 @@ import (
 )
 
 type targetinfo struct {
-	ip, user, pass, dir, port, proto, email string
+	ip, user, pass, dir, port, email string
 }
 
 type sourceinfo struct {
 	ip, user, pass string
 }
 
-func prompt(question string) string {
+type optinfo struct {
+	access, email, proto string
+}
+
+func prompt(question string) *string {
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Print(question)
 	input, _ := reader.ReadString('\n')
 	answer := strings.TrimSuffix(input, "\n")
-	return answer
+	return &answer
 }
 
-func parsePrompt(flagname, usage, question string) string {
-	var answer string
-	flag.StringVar(&answer, flagname, "", usage)
+// func parsePrompt(flagname, usage, question string) string {
+func reqFlags(flagMap map[string][2]string) map[string]string {
 
-	if answer == "" {
-		answer = prompt(question)
+	//
+	answers := make(map[string]string)
+
+	//
+	for flagname, helps := range flagMap {
+		var response string
+		flag.StringVar(&response, flagname, "", helps[0])
+		answers[flagname] = response
 	}
-	return answer
+	flag.Parse()
+
+	//
+	for flagname, helps := range flagMap {
+		if answers[flagname] == "" {
+			answers[flagname] = *prompt(helps[1])
+		}
+	}
+	return answers
 }
 
-func checkPrivilege() string {
-	access := parsePrompt("access", "access level to source (single|reseller)", "Level of access (single|reseller): ")
+func checkPrivilege() *string {
+
+	// Read access level from Args.
+	access := flag.Arg(0)
+
+	// Validate responses.
 	for access != "single" && access != "reseller" {
-		access = prompt("Acceptible values are single or reseller: ")
+		access = *prompt("Level of access (single|reseller): ")
 	}
-	return access
+
+	// Return access
+	return &access
 }
 
-func getInfo() (string, targetinfo, sourceinfo) {
+func getInfo() (*optinfo, *targetinfo, *sourceinfo) {
 
-	access := checkPrivilege()
+	// Create map of required flags.
+	var flagMap map[string][2]string
+	flagMap["sip"] = [2]string{"source ip address", "Source IP: "}
+	flagMap["suser"] = [2]string{"source username", "Source User:"}
+	flagMap["spass"] = [2]string{"source password", "Source Pass: "}
+	flagMap["tip"] = [2]string{"target ip address", "Target IP: "}
+	flagMap["tuser"] = [2]string{"target username", "Target User: "}
+	flagMap["tpass"] = [2]string{"target password", "Target Pass: "}
+	flagMap["tdir"] = [2]string{"target directory", "Target Directory: "}
+	flagMap["tport"] = [2]string{"target port", "Target Port: "}
+	flagMap["proto"] = [2]string{"target protocol", "Transport Protocol (scp|ftp): "}
+	flagMap["email"] = [2]string{"email address (for notifications)", "Email (for notifications): "}
 
-	// Collect target info.
+	flagVals := reqFlags(flagMap)
+
+	// Set opts.
+	var opts optinfo
+	opts.access = *checkPrivilege()
+	opts.proto = flagVals["proto"]
+	opts.email = flagVals["email"]
+
+	// Set target info.
 	var target targetinfo
-	target.ip = parsePrompt("tip", "target ip address", "Target IP: ")
-	target.user = parsePrompt("tuser", "target username", "Target User: ")
-	target.pass = parsePrompt("tpass", "target password", "Target Pass: ")
-	target.dir = parsePrompt("tdir", "target directory", "Target Directory: ")
-	target.port = parsePrompt("tport", "target port", "Target Port: ")
-	target.proto = parsePrompt("proto", "target protocol", "Transport Protocol (scp|ftp): ")
-	target.email = parsePrompt("email", "email address (for notifications)", "Email (for notifications): ")
+	target.ip = flagVals["tip"]
+	target.user = flagVals["tuser"]
+	target.pass = flagVals["tpass"]
+	target.dir = flagVals["tdir"]
+	target.port = flagVals["tport"]
 
 	// Collect source info.
 	var source sourceinfo
-	source.ip = parsePrompt("sip", "source ip address", "Source IP: ")
-	source.user = parsePrompt("suser", "source username", "Source User: ")
-	source.pass = parsePrompt("spass", "source password", "Source Pass: ")
+	source.ip = flagVals["sip"]
+	source.user = flagVals["suser"]
+	source.pass = flagVals["spass"]
 
-	flag.Parse()
-
-	return access, target, source
+	return &opts, &target, &source
 }
 
 // func getUsers(source sourceinfo) []string {
@@ -109,7 +147,7 @@ func sendPOST(cPurl, body, user, pass string) {
 	}
 }
 
-func reqBackups(users []string, target targetinfo, source sourceinfo) {
+func reqBackups(users []string, target *targetinfo, source *sourceinfo, opts *optinfo) {
 	userNum := len(users)
 	fmt.Println("Found", userNum, "remote users.")
 
@@ -123,11 +161,11 @@ func reqBackups(users []string, target targetinfo, source sourceinfo) {
 		data.Set("cpanel_jsonapi_module", "Fileman")
 		data.Set("cpanel_jsonapi_func", "fullbackup")
 		data.Set("cpanel_jsonapi_apiversion", "1")
-		data.Set("arg-0", target.proto)
+		data.Set("arg-0", opts.proto)
 		data.Set("arg-1", target.ip)
 		data.Set("arg-2", target.user)
 		data.Set("arg-3", target.pass)
-		data.Set("arg-4", target.email)
+		data.Set("arg-4", opts.email)
 		data.Set("arg-5", target.port)
 		data.Set("arg-6", target.dir)
 		body := data.Encode()
@@ -143,16 +181,16 @@ func reqBackups(users []string, target targetinfo, source sourceinfo) {
 
 func main() {
 
-	access, target, source := getInfo()
+	opts, target, source := getInfo()
 
-	switch access {
+	switch opts.access {
 	case "single":
 		user := []string{source.user}
-		reqBackups(user, target, source)
+		reqBackups(user, target, source, opts)
 	case "reseller":
 		// here's were we'll get the user list
 		var users []string
-		reqBackups(users, target, source)
+		reqBackups(users, target, source, opts)
 	}
 
 	// dumpInfo(&target, &source)
