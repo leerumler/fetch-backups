@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/tls"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -88,57 +89,61 @@ func getInfo() (*optinfo, *targetinfo, *sourceinfo) {
 	return &opts, &target, &source
 }
 
-func getAddr(source *sourceinfo) string {
-	urlPieces := []string{"https://", *source.ip, ":2083/json-api/cpanel"}
-	return strings.Join(urlPieces, "")
+type cPuserData struct {
+	User   string
+	Domain string
+	Select string
+}
+
+type cPuapiResponse struct {
+	Status   int
+	Errors   string
+	Data     []cPuserData
+	Messages string
+	metadata interface{}
 }
 
 func getUsers(source *sourceinfo) []string {
-	cPurl := getAddr(source)
+	urlPieces := []string{"https://", *source.ip, ":2083/execute/Resellers/list_accounts"}
+	cPurl := strings.Join(urlPieces, "")
+
 	data := url.Values{}
 	data.Add("cpanel_jsonapi_user", *source.user)
-	data.Add("cpanel_jsonapi_apiversion", "2")
-	data.Add("cpanel_jsonapi_module", "resellers")
-	data.Add("cpanel_jsonapi_func", "get_sub_accounts")
+	data.Add("cpanel_jsonapi_apiversion", "3")
+	data.Add("cpanel_jsonapi_module", "Resellers")
+	data.Add("cpanel_jsonapi_func", "list_accounts")
 	body := data.Encode()
 
-	response := sendPOST(cPurl, body, *source.user, *source.pass)
+	response, err := sendPOST(cPurl, body, *source.user, *source.pass)
+	if err != nil {
+		log.Fatal(err)
+	} else {
+		defer response.Body.Close()
+	}
 
 	cPjsonbuff := new(bytes.Buffer)
 	if _, err := io.Copy(cPjsonbuff, response.Body); err != nil {
 		log.Fatal(err)
 	}
 
-	// cPjsonbytes := make([]byte, cPjsonbuff.Len())
+	// fmt.Println()
+	cPjson := cPjsonbuff.Bytes()
+	// fmt.Println(string(cPjson))
 
-	// 	cPjson
-	//	{
-	//		"cpanelresult":{
-	//			"apiversion":2,
-	// 			"func":"resellers",
-	//			"data":[
-	//				{
-	//					"domain":"example.com",
-	//					"user":"example",
-	//					"select":"1"
-	//				},
-	//				{
-	//					"domain":"example1.com",
-	//					"user":"example1",
-	//					"select":""
-	//				}
-	//			],
-	//			"event":{
-	//				"result":1
-	//			},
-	//			"module":"Reseller"
-	//		}
-	//	}
+	var parsed cPuapiResponse
+	json.Unmarshal(cPjson, &parsed)
 
-	return make([]string, 0)
+	var userlist []string
+	for _, userdata := range parsed.Data {
+		userlist = append(userlist, userdata.User)
+	}
+
+	fmt.Println("User List:", userlist)
+
+	return userlist
 }
 
-func sendPOST(cPurl, body, user, pass string) *http.Response {
+func sendPOST(cPurl, body, user, pass string) (*http.Response, error) {
 
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -152,20 +157,17 @@ func sendPOST(cPurl, body, user, pass string) *http.Response {
 	request.Header.Add("Content Type:", "application/x-www-form-urlencoded")
 	request.SetBasicAuth(user, pass)
 	response, err := client.Do(request)
-	if err != nil {
-		log.Fatal(err)
-	} else {
-		defer response.Body.Close()
-	}
-
-	return response
+	return response, err
 }
 
 func fetchBackups(users []string, target *targetinfo, source *sourceinfo, opts *optinfo) {
 	userNum := len(users)
 	fmt.Println("Found", userNum, "remote users.")
 
-	cPurl := getAddr(source)
+	urlPieces := []string{"https://", *source.ip, ":2083/json-api/cpanel"}
+	cPurl := strings.Join(urlPieces, "")
+
+	fmt.Println("Sending requests to", cPurl)
 
 	for i, user := range users {
 		data := url.Values{}
@@ -185,11 +187,15 @@ func fetchBackups(users []string, target *targetinfo, source *sourceinfo, opts *
 
 		// debugging info
 		fmt.Printf("Sending request for user %v of %v: %v\n", i+1, userNum, user)
-		fmt.Println("to", cPurl)
-		fmt.Println("Post Body:", body)
+		// fmt.Println("Post Body:", body)
 
 		//
-		response := sendPOST(cPurl, body, user, *source.pass)
+		response, err := sendPOST(cPurl, body, user, *source.pass)
+		if err != nil {
+			log.Fatal(err)
+		} else {
+			defer response.Body.Close()
+		}
 
 		// Display response status and body.
 		fmt.Println("Response Status:", response.Status)
