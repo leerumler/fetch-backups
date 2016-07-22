@@ -88,11 +88,57 @@ func getInfo() (*optinfo, *targetinfo, *sourceinfo) {
 	return &opts, &target, &source
 }
 
-// func getUsers(source sourceinfo) []string {
-//
-// }
+func getAddr(source *sourceinfo) string {
+	urlPieces := []string{"https://", *source.ip, ":2083/json-api/cpanel"}
+	return strings.Join(urlPieces, "")
+}
 
-func sendPOST(cPurl, body, user, pass string) {
+func getUsers(source *sourceinfo) []string {
+	cPurl := getAddr(source)
+	data := url.Values{}
+	data.Add("cpanel_jsonapi_user", *source.user)
+	data.Add("cpanel_jsonapi_apiversion", "2")
+	data.Add("cpanel_jsonapi_module", "resellers")
+	data.Add("cpanel_jsonapi_func", "get_sub_accounts")
+	body := data.Encode()
+
+	response := sendPOST(cPurl, body, *source.user, *source.pass)
+
+	cPjsonbuff := new(bytes.Buffer)
+	if _, err := io.Copy(cPjsonbuff, response.Body); err != nil {
+		log.Fatal(err)
+	}
+
+	// cPjsonbytes := make([]byte, cPjsonbuff.Len())
+
+	// 	cPjson
+	//	{
+	//		"cpanelresult":{
+	//			"apiversion":2,
+	// 			"func":"resellers",
+	//			"data":[
+	//				{
+	//					"domain":"example.com",
+	//					"user":"example",
+	//					"select":"1"
+	//				},
+	//				{
+	//					"domain":"example1.com",
+	//					"user":"example1",
+	//					"select":""
+	//				}
+	//			],
+	//			"event":{
+	//				"result":1
+	//			},
+	//			"module":"Reseller"
+	//		}
+	//	}
+
+	return make([]string, 0)
+}
+
+func sendPOST(cPurl, body, user, pass string) *http.Response {
 
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -112,18 +158,14 @@ func sendPOST(cPurl, body, user, pass string) {
 		defer response.Body.Close()
 	}
 
-	fmt.Println("Response Status:", response.Status)
-	if _, err := io.Copy(os.Stdout, response.Body); err != nil {
-		log.Fatal(err)
-	}
+	return response
 }
 
-func reqBackups(users []string, target *targetinfo, source *sourceinfo, opts *optinfo) {
+func fetchBackups(users []string, target *targetinfo, source *sourceinfo, opts *optinfo) {
 	userNum := len(users)
 	fmt.Println("Found", userNum, "remote users.")
 
-	urlPieces := []string{"https://", *target.ip, ":2083/json-api/cpanel"}
-	cPurl := strings.Join(urlPieces, "")
+	cPurl := getAddr(source)
 
 	for i, user := range users {
 		data := url.Values{}
@@ -147,12 +189,19 @@ func reqBackups(users []string, target *targetinfo, source *sourceinfo, opts *op
 		fmt.Println("Post Body:", body)
 
 		//
-		sendPOST(cPurl, body, user, *source.pass)
+		response := sendPOST(cPurl, body, user, *source.pass)
+
+		// Display response status and body.
+		fmt.Println("Response Status:", response.Status)
+		// if _, err := io.Copy(os.Stdout, response.Body); err != nil {
+		// 	log.Fatal(err)
+		// }
 
 		if i+1 < userNum {
 			fmt.Println("Sleeping for 60 seconds to decrease server load.")
 			time.Sleep(60 * time.Second)
 		}
+
 	}
 }
 
@@ -163,12 +212,10 @@ func main() {
 	switch *opts.access {
 	case "single":
 		user := []string{*source.user}
-		reqBackups(user, target, source, opts)
+		fetchBackups(user, target, source, opts)
 	case "reseller":
 		// here's were we'll get the user list
-		var users []string
-		reqBackups(users, target, source, opts)
+		users := getUsers(source)
+		fetchBackups(users, target, source, opts)
 	}
-
-	// dumpInfo(&target, &source)
 }
